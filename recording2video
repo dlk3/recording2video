@@ -1,0 +1,489 @@
+#!/usr/bin/env python
+
+import struct
+from MythTV import MythDB, MythBE, Recorded, MythError, Video, VideoGrabber
+import pytz
+import re
+import shlex, subprocess
+import os, sys, signal, shutil
+import tempfile
+import time
+import urllib2
+import pprint
+import traceback
+
+#  Calculate elapsed time and return it as a pretty string.
+#  "start" must be a time.time() value.
+def elapsedTime(start):
+	end = time.time()
+	hours, rem = divmod(end-start, 3600)
+	minutes, seconds = divmod(rem, 60)
+	outstr = "{} seconds".format(int(round(seconds)))
+	if minutes > 0:
+            outstr = "{} minutes, {}".format(int(minutes), outstr)
+	if hours > 0:
+            outstr = "{} hours, {}".format(int(hours), outstr)
+	return outstr
+	
+#  Opensubtitles style file hash stolen from 
+#  https://trac.opensubtitles.org/projects/opensubtitles/wiki/HashSourceCodes
+def hashFile(name):
+	try:
+
+		longlongformat = '<q'  # little-endian long long
+		bytesize = struct.calcsize(longlongformat) 
+
+		f = open(name, "rb") 
+
+		filesize = os.path.getsize(name) 
+		hash = filesize 
+
+		if filesize < 65536 * 2: 
+			return "SizeError" 
+
+		for x in range(65536/bytesize): 
+			buffer = f.read(bytesize) 
+			(l_value,)= struct.unpack(longlongformat, buffer)  
+			hash += l_value 
+			hash = hash & 0xFFFFFFFFFFFFFFFF #to remain as 64bit number  
+
+
+		f.seek(max(0,filesize-65536),0) 
+		for x in range(65536/bytesize): 
+			buffer = f.read(bytesize) 
+			(l_value,)= struct.unpack(longlongformat, buffer)  
+			hash += l_value 
+			hash = hash & 0xFFFFFFFFFFFFFFFF 
+
+		f.close() 
+		returnedhash =  "%016x" % hash 
+		return returnedhash 
+
+	except(IOError): 
+		return ''
+		
+#  Download coverart and screenshot images named in the metadata
+def getImage(filename, ftype, url, hostname):
+	try:
+		target = ''
+		if (ftype == 'coverart'):
+			for sg in DB.getStorageGroup(groupname="Coverart", hostname=hostname):
+				target = sg.dirname
+		elif (ftype == 'screenshot'):
+			for sg in DB.getStorageGroup(groupname="Screenshots", hostname=hostname):
+				target = sg.dirname
+		elif (ftype == 'banner'):
+			for sg in DB.getStorageGroup(groupname="Banners", hostname=hostname):
+				target = sg.dirname
+
+		if (target != ''):
+			hostname = subprocess.check_output('hostname').strip()
+			if not hostname.startswith('mythtv'):
+				target = '/mnt' + target
+			#  Set the target file name
+			target = os.path.join(target, filename)
+			#  Download the file if we don't already have it
+			if (not os.path.isfile(target)):
+				print "  Downloading {} image file {} from {}".format(ftype, os.path.basename(target), url)
+				image = urllib2.urlopen(url)
+				with open(target, 'w') as t:
+					t.write(image.read())
+			else:
+				print "  Using existing {} image file: {}".format(ftype, os.path.basename(target))
+		return target
+	except Exception as e:
+		_type, _obj, _tb = sys.exc_info()
+		print "Unexpected error at line {} in getImage function".format(_tb.tb_lineno)
+		# print "{}: {}".format(e.errno, e.strerror)
+		traceback.print_exc()
+		return ''
+		
+elapsed_start = time.time()
+
+print "Getting list of recordings ..."
+
+#  Get a list of all of the recordings
+class MyRecorded(Recorded):
+	_table = 'recorded'
+
+DB = MythDB()
+DB.searchRecorded.handler = MyRecorded
+DB.searchRecorded.dbclass = MyRecorded
+
+recordings = list(DB.searchRecorded())
+
+#  Ask the user to select a program from the list of recordings
+title_list = []
+counter = 1
+print "\nPlease select the program name:"
+for recording in sorted(recordings, key=lambda x: x.title):
+        if not recording.title in title_list:
+			print "{}: {}".format(counter, recording.title)
+			title_list.append(recording.title)
+			counter += 1
+recording_id = int(raw_input("Enter number: "))
+episode_list = []
+counter = 1
+print "\nPlease select the episode to be converted:"
+for recording in sorted(recordings, key=lambda x: x.starttime):
+	if recording.title == title_list[recording_id - 1]:
+		episode_list.append(recording)
+		episode_title = recording.title
+		if recording.subtitle != '':
+			episode_title = "{} - {}".format(episode_title, recording.subtitle)
+		print "{}: {} - {:%Y-%m-%d %I:%M:%S %p}".format(counter, episode_title, recording.starttime)
+		counter += 1
+episode_id = int(raw_input("Enter number: "))
+
+#  This is the recording that we'll convert
+recording = episode_list[episode_id - 1]
+
+print "\nGetting recording details from local sources ...\n"
+
+#  Get the path to the recording's storage group
+for sg in DB.getStorageGroup(groupname=recording.storagegroup, hostname=recording.hostname):
+	storage_path = sg.dirname
+
+#  Calculate additional recording metadata  items
+recording.year = recording.starttime.strftime("%Y")
+delta = recording.endtime - recording.starttime
+recording.duration = int(delta.total_seconds() / 60)
+
+#  Get video characteristics using mythtranscode utility
+cmd = shlex.split('mythtranscode -v general --passthrough --fifoinfo --chanid {} --starttime {}'.format(recording.chanid, recording.starttime.astimezone(pytz.utc).strftime('%Y%m%d%H%M%S')))
+proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+while True:
+	line = proc.stdout.readline()
+	if line != '':
+		if 'FifoVideoWidth' in line:
+			video_width = line.split()[-1]
+		if 'FifoVideoHeight' in line:
+			video_height = line.split()[-1]
+		if 'FifoVideoAspectRatio' in line:
+			video_aspect = line.split()[-1]
+		if 'FifoVideoFrameRate' in line:
+			video_fps = line.split()[-1]
+		if 'FifoAudioFormat' in line:
+			audio_format = line.split()[-1]
+		if 'FifoAudioChannels' in line:
+			audio_channels = line.split()[-1]
+		if 'FifoAudioSampleRate' in line:
+			audio_rate = line.split()[-1]
+	else:
+		break
+
+#  Deal with tweaks and special cases		
+if recording.title == "Christopher Kimball's Milk Street Television":
+    recording.title = "Milk Street Television"
+    recording.inetref = "334532"
+if recording.title == "America's Test Kitchen From Cook's Illustrated":
+    recording.title = "America's Test Kitchen"
+elif recording.title == "Cook's Country from America's Test Kitchen" or recording.title == "Cook's Country From America's Test Kitchen":
+    recording.title = "Cook's Country"
+elif recording.title == "Frontline":
+    recording.inetref = "99999999"
+    recording.season = recording.year
+    recording.episode = 1
+    for v in DB.searchVideos(title="Frontline", year=recording.season):
+        recording.episode += 1
+elif recording.title == 'Kathy':
+    recording.inetref = "257842"
+elif recording.title == "Planet Earth: Blue Planet II":
+    recording.title = "Blue Planet II"
+    recording.inetref = "330942"
+elif recording.title == "Planet Earth: Nature's Great Events":
+    recording.title = "Nature's Great Events"
+    recording.inetref = "85083"
+
+#  Try to get video metadata from TheTVDB web site
+meta = {}
+grab = VideoGrabber('TV')
+if recording.season == 0 and recording.subtitle != '':
+	print "Looking up recording at TheTVDB.com using title and subtitle"
+	try:
+		results = grab.sortedSearch(recording.title, subtitle=recording.subtitle)
+		if len(results) > 0:
+			for show in results:
+				if show.title == recording.title:
+					recording.season = show.season
+					recording.episode = show.episode
+					meta = show
+	except:
+		pass
+elif recording.season != 0:
+	print "Looking up recording at TheTVDB.com using inetref, season and episode numbers"
+	if recording.inetref == '':
+		try:
+			results = grab.sortedSearch(recording.title, tolerance=10)
+			if len(results) > 0:
+				for show in results:
+					if show.title == recording.title:
+						recording.inetref = show.interef
+		except:
+			pass
+	else:
+		if '_' in recording.inetref:
+			recording.inetref = recording.inetref.split('_')[1]
+	if recording.inetref != '':
+		try:
+			meta = grab.grabInetref(recording.inetref, season=recording.season, episode=recording.episode)
+		except:
+			pass
+if meta:
+	print "Got metadata from TheTVDB.com"
+
+#  Build output file name
+for sg in DB.getStorageGroup(groupname="Videos", hostname=recording.hostname):
+	videos_path = sg.dirname
+target_path = os.path.join(videos_path, "TV", recording.title, "Season {:02d}".format(int(recording.season)))
+if recording.subtitle != "":
+	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", "."))
+else:
+	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", "."))
+
+#  Check to see if this recording already exists
+if os.path.exists(target_file):
+	raise Exception('{} already exists'.format(target_file))
+
+print "\nRecording details:"
+print "  Title             : {}".format(recording.title)
+print "  Subtitle          : {}".format(recording.subtitle)
+print "  Season            : {}".format(recording.season)
+print "  Episode           : {}".format(recording.episode)
+print "  Plot              : {}".format(recording.description)
+print "  Category          : {}".format(recording.category)
+print "  Year              : {}".format(recording.year)
+print "  Program date/time : {:%Y-%m-%d %I:%M:%S %p}".format(recording.starttime)
+print "  Duration          : {}".format(recording.duration)
+print "  Channel           : {}".format(recording.chanid)
+print "  StartTime         : {:%Y%m%d%H%M%S}".format(recording.starttime.astimezone(pytz.utc))
+print "  Recording file    : {}".format(os.path.join(storage_path, recording.basename))
+print "  Audio format      : {}".format(audio_format)
+print "  Audio rate        : {}".format(audio_rate)
+print "  Audio channels    : {}".format(audio_channels)
+print "  Video size        : {}x{}".format(video_width, video_height)
+print "  Video frame rate  : {}".format(video_fps)
+print "  Video aspect ratio: {}".format(video_aspect)
+print "  Target file       : {}".format(target_file)
+
+#  Prompt for options
+answ = raw_input("\nModify season and/or episode numbers [y|N]: ")
+if answ.upper() == 'Y':
+	num = ''
+	while num == '':
+		num = raw_input("Enter season number [{}]: ".format(recording.season)).strip()
+		if num == '':
+			num = recording.season
+		try:
+			num = int(num)
+		except:
+			num = ''
+	recording.season = num
+	if meta:
+		meta['season'] = num
+	
+	num = ''
+	while num == '':
+		num = raw_input("Enter episode number [{}]: ".format(recording.episode)).strip()
+		if num == '':
+			num = recording.episode
+		try:
+			num = int(num)
+		except:
+			num = ''
+	recording.episode = num
+	if meta:
+		meta['episode'] = num
+
+	#  Reconstruct output file name
+	target_path = os.path.join(videos_path, "TV", recording.title, "Season {:02d}".format(int(recording.season)))
+	if recording.subtitle != "":
+		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", "."))
+	else:
+		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", "."))
+	print "New target file: {}".format(target_file)
+
+	#  Check to see if this recording already exists
+	if os.path.exists(target_file):
+		raise Exception('{} already exists'.format(target_file))
+
+normalize = True
+answ = raw_input("Normalize the audio? [Y|n]: ")
+if answ.upper() == 'N':
+	normalize = False
+
+extractonly = False
+answ = raw_input("Extract video only, do not transcode or store? [y|N]: ")
+if answ.upper() == 'Y':
+	extractonly = True
+
+delogo = ''
+answ = raw_input("Crop a WGVU-Life program? [y|N]: ")
+if answ.upper() == 'Y':
+	delogo = "-vf crop=704:356:0:60"
+	video_aspect = "1.77778"
+else:
+	answ = raw_input("Crop and delogo a WGVU Create-TV program? [y|N]: ")
+	if answ.upper() == 'Y':
+		delogo = "-vf delogo=x=55:y=400:w=104:h=25,crop=704:356:0:60"
+		video_aspect = "1.77778"
+	else:
+		answ = raw_input("Delogo a WGVU program? [y|N]: ")
+		if answ.upper() == 'Y':
+			if video_height == '720':
+				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
+				delogo = "-vf delogo=x=610:y=370:w=78:h=18"
+			else:
+				if video_width == '1440':
+					delogo = "-vf delogo=x=1220:y=985:w=159:h=40"
+				else:
+					delogo = "-vf delogo=x=1626:y=985:w=209:h=40"
+
+#  Create working directory
+fifo_dir = tempfile.mkdtemp(dir=os.path.expanduser('~'))
+
+try:
+	
+	#  Start mythtranscode outputing into the fifos
+	passthru = ""
+	if audio_format in ['ac3', 'dts', 'mp3']:
+		passthru = "--passthrough"
+	cmdline = "nice mythtranscode --chanid {} --starttime {} --honorcutlist {} --fifodir {} --cleancut".format(recording.chanid, recording.starttime.astimezone(pytz.utc).strftime('%Y%m%d%H%M%S'), passthru, fifo_dir)
+	fifo_proc = subprocess.Popen(cmdline, shell=True, preexec_fn=os.setsid)
+
+	#  Wait for the fifos to be established
+	while not (os.path.exists(os.path.join(fifo_dir, 'audout')) and os.path.exists(os.path.join(fifo_dir, 'vidout'))):
+	  time.sleep(1)
+
+	if audio_format in ['ac3', 'dts', 'mp3']:
+		audio_in_spec = "-f {}".format(audio_format)
+		audio_out_codec = "copy"
+	else:
+		audio_in_spec = "-f s16le -ac 2"
+		audio_out_codec = "aac -ab 192k -strict experimental"
+		if audio_rate != "0":
+			audio_in_spec += " -ar {}".format(audio_rate)
+			audio_out_codec += " -ar {}".format(audio_rate)
+
+	#  Best size options for x264:
+	# - SD (4:3 aspect ratio): 320x240, 432x320, 480x360, 544x400, 640x480, 768x576
+	# - HD (16:9 aspect ratio): 432x240, 576x320, 640x360, 720x400, 848x480, 1024x576, 1280x720, 1920x1080
+
+	if float(video_aspect) > 1.5:
+	  output_width = "720"
+	else:
+	  output_width = "640"
+
+	tempfile = tempfile.mktemp(dir=fifo_dir)
+
+	if extractonly:
+		target_file = os.path.join(os.path.expanduser("~"), os.path.splitext(os.path.basename(target_file))[0] + ".mkv")
+		cmdline = "nice ffmpeg -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -qp 0 -preset ultrafast -aspect {} {} -acodec {} {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), video_aspect, delogo, audio_out_codec, os.path.join(fifo_dir, target_file))
+	else:
+		cmdline = "nice ffmpeg -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -vf scale=w={}:h=-2{} -r 30000/1001 -crf 20 -acodec {} -f mp4 {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), output_width, delogo.replace('-vf ', ','), audio_out_codec, tempfile)
+	print cmdline
+	proc = subprocess.Popen(cmdline, shell=True)
+	proc.wait()
+
+	#  If ffmpeg fails, then kill mythtranscode and quit
+	if proc.returncode != 0:
+		print 'ffmpeg finished with rc = {}, terminating'.format(proc.returncode)
+		os.killpg(os.getpgid(fifo_proc.pid), signal.SIGTERM)
+		shutil.rmtree(fifo_dir)
+		sys.exit(_proc.returncode)
+
+	fifo_proc.wait()
+
+	if extractonly:
+		print "Recording saved as {}".format(target_file)
+		exit(0)
+
+	#  Normalize the audio, when requested.
+	#  Doing this while encoding the video from the mythtranscode pipes
+	#  above makes the encoding run very slowly.
+	if normalize:
+		cmdline = "nice ffmpeg -threads 0 -i {} -vcodec copy -strict experimental -acodec aac -af dynaudnorm -ab 192k {}".format(tempfile, os.path.join(fifo_dir, "normalized.mp4"))
+		cmd = shlex.split(cmdline)
+		subprocess.check_call(cmd)
+		tempfile = os.path.join(fifo_dir, "normalized.mp4")
+
+	#  Get duration of video file in minutes using ffprobe
+	minutes = 0
+	cmdline = 'ffprobe "{}"'.format(tempfile)
+	output = subprocess.check_output(cmdline, stderr=subprocess.STDOUT, shell=True)
+	for line in output.split('\n'):
+		if 'Duration:' in line:
+			matches = re.search(r'Duration: ([^,]*),', line)
+			if matches:
+				d = matches.group(1).split(':')
+				minutes = int(round((float(d[0]) * 60) + float(d[1]) + (float(d[2]) / 60)))
+				break
+
+	#  Move the final MP4 file to the library
+	print "\nMoving {} to {}".format(tempfile, target_file)
+	#shutil.move(tempfile, '/home/dlk/test.mp4')
+	cmdline = "nice rsync --progress \"{}\" mythtv:\\\"{}\\\"".format(tempfile, target_file.replace(' ', '\ ').replace("'","\\\'"))
+	cmd = shlex.split(cmdline)
+	subprocess.check_call(cmd)
+
+	#  Create video database entry
+	print "\nInserting video into database"
+	video = Video.fromFilename(target_file.replace('/Video/', '', 1))
+	video.title = recording.title
+	video.subtitle = recording.subtitle
+	video.create()
+
+	#  Update database entry with TheTVDB.com metadata, if we got it
+	if meta:
+		video.importMetadata(meta)
+
+		if video.subtitle != meta.subtitle:
+			video.subtitle = meta.subtitle
+			
+		#  Image files are not imported by importMetadata
+		for image in meta.images:
+			if (image.type in ('screenshot', 'coverart', 'banner')):
+				if (image.type == 'coverart'):
+					key = 'coverfile'
+				else:
+					key = image.type
+				#  If we don't already have an image file of this type
+				if (video[key] in (None, '', 'No Cover')):
+					#  Get the image file
+					image_file = getImage(image.filename, image.type, image.url, recording.hostname)
+					if image_file != '':
+						#  Put the file name into the database
+						video[key] = os.path.basename(image_file)
+
+	#  Fill in remaining blanks with local database metadata
+	if not video.plot:
+		video.plot = recording.description
+	if not video.inetref and recording.inetref != '':
+		video.inetref = recording.inetref
+	if not video.year:
+		video.year = recording.year
+	if not video.releasedate:
+		video.releasedate = "{:%Y-%m-%d}".format(recording.starttime.astimezone(pytz.utc))
+	if not video.season or video.season == '0':
+		video.season = recording.season
+	if not video.episode or video.episode == '0':
+		video.episode = recording.episode
+
+	#  Calculate the file hash
+	video.hash = hashFile(target_file)
+
+	#  Set host name	
+	video.host = recording.hostname
+
+	#  Set "length" to the duration of the video file as reported by ffprobe
+	video.length = minutes
+
+	#  Update the database entry with these changes
+	video.update()
+	
+finally:
+	#  Delete working directory
+	print 'Deleting {}'.format(fifo_dir)
+	shutil.rmtree(fifo_dir)
+
+print "\nAll done. That all took {}".format(elapsedTime(elapsed_start))
