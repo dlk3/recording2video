@@ -23,5 +23,5 @@ The workflow implemented in this script goes like this:
 5. A target path and file name are set to match the directory structure I've established on my MythTV server, based on the recording's series name, season and episode number.
 6. The script starts the `mythtranscode` script with the `--cleancut` option, sending the output to FIFO pipes. Simultaneously, the script starts the `ffmpeg` command, reading audio and video from those pipes and transcoding it into a MP4 video file.  
   This is the core of the script, the reason that I wrote it. This is the only way to do frame-level edits of MythTV recordings. All ofher methods only support making cuts at keyframes.
-6. If the user chose to normalize the audio then `ffmpeg` processes the MP4 file a second time, copying the video stream and re-encoding the audio, this time with normalization. I found that including the normalization step in the previous step slowed things down dramatically.
+6. If the user chose to normalize the audio then `ffmpeg` processes the MP4 file a second time, copying the video stream and re-encoding the audio, this time with normalization. I found that including the normalization in the previous step slowed things down dramatically.
 7. Finally the video file is moved to the target path in the MythTV video library and a database entry is created for it.
