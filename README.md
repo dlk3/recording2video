@@ -4,7 +4,7 @@ Note: This script is highly personalized.  There would need to be substantial re
 
 ## recording2video
 
-This Python takes a MythTV recording, converts it into a standalone video file and stores it in the MythTV video library.  I use it to archive TV series recordings.
+This Python script takes a MythTV recording, converts it into a standalone video file and stores it in the MythTV video library.  I use it to archive TV series recordings.
 
 The script must be run on a system that has a properly configured MythTV frontend installed.
 
