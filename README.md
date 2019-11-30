@@ -14,12 +14,12 @@ The workflow implemented in this script goes like this:
 1. The script first displays a list of all available recordings and prompts the user to select one.
 2. The script collects episode metadata from the MythTV database and TheTVDB and displays it.
 4. The script offers the user some options:
-  1. To change the season and episode numbers,
-  2. To normalize the audio volume,
-  3. To only transcode the video, leaving out the steps that would store it back into MythTV's video library,
-  4. To crop the black frame from a WGVU-Life (local alternate PBS channel) recording,
-  5. To crop the black frame and remove the on-screen logo from a WGVU Create-TV (local alternate PBS channel) recording,
-  6. To remove the on-screen logo from a WGVU (local PBS channel) recording
+   1. To change the season and episode numbers,
+   2. To normalize the audio volume,
+   3. To only transcode the video, leaving out the steps that would store it back into MythTV's video library,
+   4. To crop the black frame from a WGVU-Life (local alternate PBS channel) recording,
+   5. To crop the black frame and remove the on-screen logo from a WGVU Create-TV (local alternate PBS channel) recording,
+   6. To remove the on-screen logo from a WGVU (local PBS channel) recording
 5. A target path and file name are set to match the directory structure I've established on my MythTV server, based on the recording's series name, season and episode number.
 6. The script starts the `mythtranscode` script with the `--cleancut` option, sending the output to FIFO pipes. Simultaneously, the script starts the `ffmpeg` command, reading audio and video from those pipes and transcoding it into a MP4 video file.  
   This is the core of the script, the reason that I wrote it. This is the only way to do frame-level edits of MythTV recordings. All ofher methods only support making cuts at keyframes.
