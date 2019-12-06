@@ -237,9 +237,9 @@ for sg in DB.getStorageGroup(groupname="Videos", hostname=recording.hostname):
 	videos_path = sg.dirname
 target_path = os.path.join(videos_path, "TV", recording.title, "Season {:02d}".format(int(recording.season)))
 if recording.subtitle != "":
-	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", "."))
+	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
 else:
-	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", "."))
+	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
 
 #  Check to see if this recording already exists
 if os.path.exists(target_file):
@@ -298,9 +298,9 @@ if answ.upper() == 'Y':
 	#  Reconstruct output file name
 	target_path = os.path.join(videos_path, "TV", recording.title, "Season {:02d}".format(int(recording.season)))
 	if recording.subtitle != "":
-		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", "."))
+		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
 	else:
-		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", "."))
+		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
 	print "New target file: {}".format(target_file)
 
 	#  Check to see if this recording already exists
