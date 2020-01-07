@@ -89,7 +89,10 @@ def getImage(filename, ftype, url, hostname):
 				with open(target, 'w') as t:
 					t.write(image.read())
 			else:
-				print "  Using existing {} image file: {}".format(ftype, os.path.basename(target))
+				try:
+					print "  Using existing {} image file: {}".format(ftype, os.path.basename(target.replace("'", "")))
+				except:
+					print "  Using existing image file"
 		return target
 	except Exception as e:
 		_type, _obj, _tb = sys.exc_info()
@@ -175,7 +178,7 @@ while True:
 #  Deal with tweaks and special cases		
 if recording.title == "Christopher Kimball's Milk Street Television":
     recording.title = "Milk Street Television"
-    recording.inetref = "334532"
+    recording.inetref = "334523"
 if recording.title == "America's Test Kitchen From Cook's Illustrated":
     recording.title = "America's Test Kitchen"
 elif recording.title == "Cook's Country from America's Test Kitchen" or recording.title == "Cook's Country From America's Test Kitchen":
@@ -332,7 +335,7 @@ else:
 		if answ.upper() == 'Y':
 			if video_height == '720':
 				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
-				delogo = "-vf delogo=x=610:y=370:w=78:h=18"
+				delogo = "-vf delogo=x=610:y=370:w=78:h=22"
 			else:
 				if video_width == '1440':
 					delogo = "-vf delogo=x=1220:y=985:w=159:h=40"
