@@ -334,8 +334,9 @@ else:
 		answ = raw_input("Delogo a WGVU program? [y|N]: ")
 		if answ.upper() == 'Y':
 			if video_height == '720':
-				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
-				delogo = "-vf delogo=x=610:y=370:w=78:h=22"
+#				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
+#				delogo = "-vf delogo=x=610:y=370:w=78:h=22"
+				delogo = "-vf delogo=x=610:y=365:w=78:h=25"
 			else:
 				if video_width == '1440':
 					delogo = "-vf delogo=x=1220:y=985:w=159:h=40"
