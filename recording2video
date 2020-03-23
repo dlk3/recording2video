@@ -1,5 +1,11 @@
 #!/usr/bin/env python
 
+########################################################################
+#  This Source Code Form is subject to the terms of the Mozilla Public #
+#  License, v. 2.0. If a copy of the MPL was not distributed with this #
+#  file, You can obtain one at http://mozilla.org/MPL/2.0/.            #
+########################################################################
+
 import struct
 from MythTV import MythDB, MythBE, Recorded, MythError, Video, VideoGrabber
 import pytz
@@ -8,7 +14,7 @@ import shlex, subprocess
 import os, sys, signal, shutil
 import tempfile
 import time
-import urllib2
+import urllib.request, urllib.error, urllib.parse
 import pprint
 import traceback
 
@@ -84,26 +90,26 @@ def getImage(filename, ftype, url, hostname):
 			target = os.path.join(target, filename)
 			#  Download the file if we don't already have it
 			if (not os.path.isfile(target)):
-				print "  Downloading {} image file {} from {}".format(ftype, os.path.basename(target), url)
-				image = urllib2.urlopen(url)
+				print("  Downloading {} image file {} from {}".format(ftype, os.path.basename(target), url))
+				image = urllib.request.urlopen(url)
 				with open(target, 'w') as t:
 					t.write(image.read())
 			else:
 				try:
-					print "  Using existing {} image file: {}".format(ftype, os.path.basename(target.replace("'", "")))
+					print("  Using existing {} image file: {}".format(ftype, os.path.basename(target.replace("'", ""))))
 				except:
-					print "  Using existing image file"
+					print("  Using existing image file")
 		return target
 	except Exception as e:
 		_type, _obj, _tb = sys.exc_info()
-		print "Unexpected error at line {} in getImage function".format(_tb.tb_lineno)
+		print("Unexpected error at line {} in getImage function".format(_tb.tb_lineno))
 		# print "{}: {}".format(e.errno, e.strerror)
 		traceback.print_exc()
 		return ''
 		
 elapsed_start = time.time()
 
-print "Getting list of recordings ..."
+print("Getting list of recordings ...")
 
 #  Get a list of all of the recordings
 class MyRecorded(Recorded):
@@ -118,30 +124,34 @@ recordings = list(DB.searchRecorded())
 #  Ask the user to select a program from the list of recordings
 title_list = []
 counter = 1
-print "\nPlease select the program name:"
+print("\nPlease select the program name:")
 for recording in sorted(recordings, key=lambda x: x.title):
-        if not recording.title in title_list:
-			print "{}: {}".format(counter, recording.title)
-			title_list.append(recording.title)
-			counter += 1
-recording_id = int(raw_input("Enter number: "))
+	if not recording.title in title_list:
+		print("{}: {}".format(counter, recording.title))
+		title_list.append(recording.title)
+		counter += 1
+recording_id = int(input("Enter number: "))
 episode_list = []
 counter = 1
-print "\nPlease select the episode to be converted:"
+print("\nPlease select the episode to be converted:")
 for recording in sorted(recordings, key=lambda x: x.starttime):
 	if recording.title == title_list[recording_id - 1]:
 		episode_list.append(recording)
 		episode_title = recording.title
 		if recording.subtitle != '':
 			episode_title = "{} - {}".format(episode_title, recording.subtitle)
-		print "{}: {} - {:%Y-%m-%d %I:%M:%S %p}".format(counter, episode_title, recording.starttime)
+		if recording.cutlist:
+			has_cutlist = ' - has cutlist'
+		else:
+			has_cutlist = ''
+		print("{}: {} - {:%Y-%m-%d %I:%M:%S %p}{}".format(counter, episode_title, recording.starttime, has_cutlist))
 		counter += 1
-episode_id = int(raw_input("Enter number: "))
+episode_id = int(input("Enter number: "))
 
 #  This is the recording that we'll convert
 recording = episode_list[episode_id - 1]
 
-print "\nGetting recording details from local sources ...\n"
+print("\nGetting recording details from local sources ...\n")
 
 #  Get the path to the recording's storage group
 for sg in DB.getStorageGroup(groupname=recording.storagegroup, hostname=recording.hostname):
@@ -202,7 +212,7 @@ elif recording.title == "Planet Earth: Nature's Great Events":
 meta = {}
 grab = VideoGrabber('TV')
 if recording.season == 0 and recording.subtitle != '':
-	print "Looking up recording at TheTVDB.com using title and subtitle"
+	print("Looking up recording at TheTVDB.com using title and subtitle")
 	try:
 		results = grab.sortedSearch(recording.title, subtitle=recording.subtitle)
 		if len(results) > 0:
@@ -214,7 +224,7 @@ if recording.season == 0 and recording.subtitle != '':
 	except:
 		pass
 elif recording.season != 0:
-	print "Looking up recording at TheTVDB.com using inetref, season and episode numbers"
+	print("Looking up recording at TheTVDB.com using inetref, season and episode numbers")
 	if recording.inetref == '':
 		try:
 			results = grab.sortedSearch(recording.title, tolerance=10)
@@ -233,7 +243,7 @@ elif recording.season != 0:
 		except:
 			pass
 if meta:
-	print "Got metadata from TheTVDB.com"
+	print("Got metadata from TheTVDB.com")
 
 #  Build output file name
 for sg in DB.getStorageGroup(groupname="Videos", hostname=recording.hostname):
@@ -248,33 +258,33 @@ else:
 if os.path.exists(target_file):
 	raise Exception('{} already exists'.format(target_file))
 
-print "\nRecording details:"
-print "  Title             : {}".format(recording.title)
-print "  Subtitle          : {}".format(recording.subtitle)
-print "  Season            : {}".format(recording.season)
-print "  Episode           : {}".format(recording.episode)
-print "  Plot              : {}".format(recording.description)
-print "  Category          : {}".format(recording.category)
-print "  Year              : {}".format(recording.year)
-print "  Program date/time : {:%Y-%m-%d %I:%M:%S %p}".format(recording.starttime)
-print "  Duration          : {}".format(recording.duration)
-print "  Channel           : {}".format(recording.chanid)
-print "  StartTime         : {:%Y%m%d%H%M%S}".format(recording.starttime.astimezone(pytz.utc))
-print "  Recording file    : {}".format(os.path.join(storage_path, recording.basename))
-print "  Audio format      : {}".format(audio_format)
-print "  Audio rate        : {}".format(audio_rate)
-print "  Audio channels    : {}".format(audio_channels)
-print "  Video size        : {}x{}".format(video_width, video_height)
-print "  Video frame rate  : {}".format(video_fps)
-print "  Video aspect ratio: {}".format(video_aspect)
-print "  Target file       : {}".format(target_file)
+print("\nRecording details:")
+print("  Title             : {}".format(recording.title))
+print("  Subtitle          : {}".format(recording.subtitle))
+print("  Season            : {}".format(recording.season))
+print("  Episode           : {}".format(recording.episode))
+print("  Plot              : {}".format(recording.description))
+print("  Category          : {}".format(recording.category))
+print("  Year              : {}".format(recording.year))
+print("  Program date/time : {:%Y-%m-%d %I:%M:%S %p}".format(recording.starttime))
+print("  Duration          : {}".format(recording.duration))
+print("  Channel           : {}".format(recording.chanid))
+print("  StartTime         : {:%Y%m%d%H%M%S}".format(recording.starttime.astimezone(pytz.utc)))
+print("  Recording file    : {}".format(os.path.join(storage_path, recording.basename)))
+print("  Audio format      : {}".format(audio_format))
+print("  Audio rate        : {}".format(audio_rate))
+print("  Audio channels    : {}".format(audio_channels))
+print("  Video size        : {}x{}".format(video_width, video_height))
+print("  Video frame rate  : {}".format(video_fps))
+print("  Video aspect ratio: {}".format(video_aspect))
+print("  Target file       : {}".format(target_file))
 
 #  Prompt for options
-answ = raw_input("\nModify season and/or episode numbers [y|N]: ")
+answ = input("\nModify season and/or episode numbers [y|N]: ")
 if answ.upper() == 'Y':
 	num = ''
 	while num == '':
-		num = raw_input("Enter season number [{}]: ".format(recording.season)).strip()
+		num = input("Enter season number [{}]: ".format(recording.season)).strip()
 		if num == '':
 			num = recording.season
 		try:
@@ -287,7 +297,7 @@ if answ.upper() == 'Y':
 	
 	num = ''
 	while num == '':
-		num = raw_input("Enter episode number [{}]: ".format(recording.episode)).strip()
+		num = input("Enter episode number [{}]: ".format(recording.episode)).strip()
 		if num == '':
 			num = recording.episode
 		try:
@@ -304,34 +314,34 @@ if answ.upper() == 'Y':
 		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
 	else:
 		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
-	print "New target file: {}".format(target_file)
+	print("New target file: {}".format(target_file))
 
 	#  Check to see if this recording already exists
 	if os.path.exists(target_file):
 		raise Exception('{} already exists'.format(target_file))
 
 normalize = True
-answ = raw_input("Normalize the audio? [Y|n]: ")
+answ = input("Normalize the audio? [Y|n]: ")
 if answ.upper() == 'N':
 	normalize = False
 
 extractonly = False
-answ = raw_input("Extract video only, do not transcode or store? [y|N]: ")
+answ = input("Extract video only, do not transcode or store? [y|N]: ")
 if answ.upper() == 'Y':
 	extractonly = True
 
 delogo = ''
-answ = raw_input("Crop a WGVU-Life program? [y|N]: ")
+answ = input("Crop a WGVU-Life program? [y|N]: ")
 if answ.upper() == 'Y':
 	delogo = "-vf crop=704:356:0:60"
 	video_aspect = "1.77778"
 else:
-	answ = raw_input("Crop and delogo a WGVU Create-TV program? [y|N]: ")
+	answ = input("Crop and delogo a WGVU Create-TV program? [y|N]: ")
 	if answ.upper() == 'Y':
 		delogo = "-vf delogo=x=55:y=400:w=104:h=25,crop=704:356:0:60"
 		video_aspect = "1.77778"
 	else:
-		answ = raw_input("Delogo a WGVU program? [y|N]: ")
+		answ = input("Delogo a WGVU program? [y|N]: ")
 		if answ.upper() == 'Y':
 			if video_height == '720':
 #				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
@@ -385,13 +395,13 @@ try:
 		cmdline = "nice ffmpeg -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -qp 0 -preset ultrafast -aspect {} {} -acodec {} {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), video_aspect, delogo, audio_out_codec, os.path.join(fifo_dir, target_file))
 	else:
 		cmdline = "nice ffmpeg -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -vf scale=w={}:h=-2{} -r 30000/1001 -crf 20 -acodec {} -f mp4 {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), output_width, delogo.replace('-vf ', ','), audio_out_codec, tempfile)
-	print cmdline
+	print(cmdline)
 	proc = subprocess.Popen(cmdline, shell=True)
 	proc.wait()
 
 	#  If ffmpeg fails, then kill mythtranscode and quit
 	if proc.returncode != 0:
-		print 'ffmpeg finished with rc = {}, terminating'.format(proc.returncode)
+		print('ffmpeg finished with rc = {}, terminating'.format(proc.returncode))
 		os.killpg(os.getpgid(fifo_proc.pid), signal.SIGTERM)
 		shutil.rmtree(fifo_dir)
 		sys.exit(_proc.returncode)
@@ -399,7 +409,7 @@ try:
 	fifo_proc.wait()
 
 	if extractonly:
-		print "Recording saved as {}".format(target_file)
+		print("Recording saved as {}".format(target_file))
 		exit(0)
 
 	#  Normalize the audio, when requested.
@@ -424,14 +434,14 @@ try:
 				break
 
 	#  Move the final MP4 file to the library
-	print "\nMoving {} to {}".format(tempfile, target_file)
+	print("\nMoving {} to {}".format(tempfile, target_file))
 	#shutil.move(tempfile, '/home/dlk/test.mp4')
 	cmdline = "nice rsync --progress \"{}\" mythtv:\\\"{}\\\"".format(tempfile, target_file.replace(' ', '\ ').replace("'","\\\'"))
 	cmd = shlex.split(cmdline)
 	subprocess.check_call(cmd)
 
 	#  Create video database entry
-	print "\nInserting video into database"
+	print("\nInserting video into database")
 	video = Video.fromFilename(target_file.replace('/Video/', '', 1))
 	video.title = recording.title
 	video.subtitle = recording.subtitle
@@ -487,7 +497,7 @@ try:
 	
 finally:
 	#  Delete working directory
-	print 'Deleting {}'.format(fifo_dir)
+	print('Deleting {}'.format(fifo_dir))
 	shutil.rmtree(fifo_dir)
 
-print "\nAll done. That all took {}".format(elapsedTime(elapsed_start))
+print("\nAll done. That all took {}".format(elapsedTime(elapsed_start)))
