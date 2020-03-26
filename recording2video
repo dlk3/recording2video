@@ -167,6 +167,7 @@ cmd = shlex.split('mythtranscode -v general --passthrough --fifoinfo --chanid {}
 proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 while True:
 	line = proc.stdout.readline()
+	line = str(line, 'utf-8')
 	if line != '':
 		if 'FifoVideoWidth' in line:
 			video_width = line.split()[-1]
@@ -250,9 +251,9 @@ for sg in DB.getStorageGroup(groupname="Videos", hostname=recording.hostname):
 	videos_path = sg.dirname
 target_path = os.path.join(videos_path, "TV", recording.title, "Season {:02d}".format(int(recording.season)))
 if recording.subtitle != "":
-	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
+	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mkv".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
 else:
-	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
+	target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mkv".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
 
 #  Check to see if this recording already exists
 if os.path.exists(target_file):
@@ -311,9 +312,9 @@ if answ.upper() == 'Y':
 	#  Reconstruct output file name
 	target_path = os.path.join(videos_path, "TV", recording.title, "Season {:02d}".format(int(recording.season)))
 	if recording.subtitle != "":
-		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
+		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.{}.HDTV.x264.mkv".format(recording.title, int(recording.season), int(recording.episode), recording.subtitle).replace(" ", ".").replace(";", ","))
 	else:
-		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mp4".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
+		target_file = os.path.join(target_path, "{}.S{:02d}E{:02d}.HDTV.x264.mkv".format(recording.title, int(recording.season), int(recording.episode)).replace(" ", ".").replace(";", ","))
 	print("New target file: {}".format(target_file))
 
 	#  Check to see if this recording already exists
@@ -346,13 +347,14 @@ else:
 			if video_height == '720':
 #				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
 #				delogo = "-vf delogo=x=610:y=370:w=78:h=22"
-				delogo = "-vf delogo=x=610:y=365:w=78:h=25"
+#				delogo = "-vf delogo=x=610:y=365:w=78:h=25"
+				delogo = "-vf delogo=x=1083:y=642:w=146:h=43"
 			else:
 				if video_width == '1440':
 					delogo = "-vf delogo=x=1220:y=985:w=159:h=40"
 				else:
 					delogo = "-vf delogo=x=1626:y=985:w=209:h=40"
-
+				
 #  Create working directory
 fifo_dir = tempfile.mkdtemp(dir=os.path.expanduser('~'))
 
@@ -384,7 +386,7 @@ try:
 	# - HD (16:9 aspect ratio): 432x240, 576x320, 640x360, 720x400, 848x480, 1024x576, 1280x720, 1920x1080
 
 	if float(video_aspect) > 1.5:
-	  output_width = "720"
+	  output_width = "1280"
 	else:
 	  output_width = "640"
 
@@ -416,15 +418,17 @@ try:
 	#  Doing this while encoding the video from the mythtranscode pipes
 	#  above makes the encoding run very slowly.
 	if normalize:
-		cmdline = "nice ffmpeg -threads 0 -i {} -vcodec copy -strict experimental -acodec aac -af dynaudnorm -ab 192k {}".format(tempfile, os.path.join(fifo_dir, "normalized.mp4"))
+		# cmdline = "nice ffmpeg -threads 0 -i {} -vcodec copy -strict experimental -acodec aac -af dynaudnorm -ab 192k {}".format(tempfile, os.path.join(fifo_dir, "normalized.mkv"))
+		cmdline = "nice ffmpeg -threads 0 -i {} -c:v copy -c:a ac3 -af dynaudnorm {}".format(tempfile, os.path.join(fifo_dir, "normalized.mkv"))
 		cmd = shlex.split(cmdline)
 		subprocess.check_call(cmd)
-		tempfile = os.path.join(fifo_dir, "normalized.mp4")
+		tempfile = os.path.join(fifo_dir, "normalized.mkv")
 
 	#  Get duration of video file in minutes using ffprobe
 	minutes = 0
 	cmdline = 'ffprobe "{}"'.format(tempfile)
 	output = subprocess.check_output(cmdline, stderr=subprocess.STDOUT, shell=True)
+	output = str(output, 'utf-8')
 	for line in output.split('\n'):
 		if 'Duration:' in line:
 			matches = re.search(r'Duration: ([^,]*),', line)
@@ -435,7 +439,7 @@ try:
 
 	#  Move the final MP4 file to the library
 	print("\nMoving {} to {}".format(tempfile, target_file))
-	#shutil.move(tempfile, '/home/dlk/test.mp4')
+	#shutil.move(tempfile, '/home/dlk/test.mkv')
 	cmdline = "nice rsync --progress \"{}\" mythtv:\\\"{}\\\"".format(tempfile, target_file.replace(' ', '\ ').replace("'","\\\'"))
 	cmd = shlex.split(cmdline)
 	subprocess.check_call(cmd)
