@@ -348,7 +348,8 @@ else:
 #				delogo = "-vf delogo=x=905:y=636:w=142:h=31"
 #				delogo = "-vf delogo=x=610:y=370:w=78:h=22"
 #				delogo = "-vf delogo=x=610:y=365:w=78:h=25"
-				delogo = "-vf delogo=x=1083:y=642:w=146:h=43"
+# 				delogo = "-vf delogo=x=1083:y=642:w=146:h=43"  # 1280x720
+ 				delogo = "-vf delogo=x=718:y=427:w=105:h=27"   # 854x480
 			else:
 				if video_width == '1440':
 					delogo = "-vf delogo=x=1220:y=985:w=159:h=40"
@@ -365,7 +366,8 @@ try:
 	if audio_format in ['ac3', 'dts', 'mp3']:
 		passthru = "--passthrough"
 	cmdline = "nice mythtranscode --chanid {} --starttime {} --honorcutlist {} --fifodir {} --cleancut".format(recording.chanid, recording.starttime.astimezone(pytz.utc).strftime('%Y%m%d%H%M%S'), passthru, fifo_dir)
-	fifo_proc = subprocess.Popen(cmdline, shell=True, preexec_fn=os.setsid)
+#	fifo_proc = subprocess.Popen(cmdline, shell=True, preexec_fn=os.setsid)
+	fifo_proc = subprocess.Popen(cmdline, shell=True, start_new_session=True)
 
 	#  Wait for the fifos to be established
 	while not (os.path.exists(os.path.join(fifo_dir, 'audout')) and os.path.exists(os.path.join(fifo_dir, 'vidout'))):
@@ -386,17 +388,17 @@ try:
 	# - HD (16:9 aspect ratio): 432x240, 576x320, 640x360, 720x400, 848x480, 1024x576, 1280x720, 1920x1080
 
 	if float(video_aspect) > 1.5:
-	  output_width = "1280"
+	  output_width = "854"
 	else:
 	  output_width = "640"
-
+	
 	tempfile = tempfile.mktemp(dir=fifo_dir)
 
 	if extractonly:
 		target_file = os.path.join(os.path.expanduser("~"), os.path.splitext(os.path.basename(target_file))[0] + ".mkv")
-		cmdline = "nice ffmpeg -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -qp 0 -preset ultrafast -aspect {} {} -acodec {} {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), video_aspect, delogo, audio_out_codec, os.path.join(fifo_dir, target_file))
+		cmdline = "nice ffmpeg -hide_banner -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -qp 0 -preset ultrafast -aspect {} {} -acodec {} {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), video_aspect, delogo, audio_out_codec, os.path.join(fifo_dir, target_file))
 	else:
-		cmdline = "nice ffmpeg -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -vf scale=w={}:h=-2{} -r 30000/1001 -crf 20 -acodec {} -f mp4 {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), output_width, delogo.replace('-vf ', ','), audio_out_codec, tempfile)
+		cmdline = "nice ffmpeg -hide_banner -threads 0 -thread_queue_size 256 {} -i {} -thread_queue_size 256 -f rawvideo -top 1 -pix_fmt yuv420p -s {}x{} -r {} -i {} -vcodec libx264 -vf scale=w={}:h=-2{} -r 30000/1001 -crf 20 -acodec {} -f mp4 {}".format(audio_in_spec, os.path.join(fifo_dir, "audout"), video_width, video_height, video_fps, os.path.join(fifo_dir, "vidout"), output_width, delogo.replace('-vf ', ','), audio_out_codec, tempfile)
 	print(cmdline)
 	proc = subprocess.Popen(cmdline, shell=True)
 	proc.wait()
@@ -418,8 +420,8 @@ try:
 	#  Doing this while encoding the video from the mythtranscode pipes
 	#  above makes the encoding run very slowly.
 	if normalize:
-		# cmdline = "nice ffmpeg -threads 0 -i {} -vcodec copy -strict experimental -acodec aac -af dynaudnorm -ab 192k {}".format(tempfile, os.path.join(fifo_dir, "normalized.mkv"))
-		cmdline = "nice ffmpeg -threads 0 -i {} -c:v copy -c:a ac3 -af dynaudnorm {}".format(tempfile, os.path.join(fifo_dir, "normalized.mkv"))
+		# cmdline = "nice ffmpeg -hide_banner -threads 0 -i {} -vcodec copy -strict experimental -acodec aac -af dynaudnorm -ab 192k {}".format(tempfile, os.path.join(fifo_dir, "normalized.mkv"))
+		cmdline = "nice ffmpeg -hide_banner -threads 0 -i {} -c:v copy -c:a ac3 -af dynaudnorm -b:a 384k {}".format(tempfile, os.path.join(fifo_dir, "normalized.mkv"))
 		cmd = shlex.split(cmdline)
 		subprocess.check_call(cmd)
 		tempfile = os.path.join(fifo_dir, "normalized.mkv")
